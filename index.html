@@ -299,10 +299,9 @@
     }
 
     .copy-btn { background: rgba(10,132,255,0.18); color: var(--accent); }
-    .play-btn { background: rgba(48,209,88,0.18); color: var(--accent2); margin-left: 4px; }
+    .play-btn { background: rgba(48,209,88,0.18); color: var(--accent2); }
 
     .copy-btn:active, .play-btn:active { transform: scale(0.94); }
-
     .copy-btn.copied { background: rgba(48,209,88,0.2); color: var(--accent2); }
 
     /* Main stream highlight */
@@ -348,10 +347,10 @@
     .res-list { display: none; }
     .res-list.open { display: block; }
 
-    /* ── Player Overlay ── */
-    #playerOverlay {
+    /* ── Fullscreen Video Overlay ── */
+    #videoOverlay {
       position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
+      top: 0; left: 0; width: 100%; height: 100%;
       background: #000;
       z-index: 1000;
       display: none;
@@ -359,19 +358,21 @@
       justify-content: center;
       align-items: center;
     }
-    #playerOverlay.active { display: flex; }
-    #videoPlayer { width: 100%; max-width: 1000px; aspect-ratio: 16/9; background: #000; }
-    .close-player {
+    #videoOverlay.show { display: flex; }
+    video { width: 100%; max-width: 100%; aspect-ratio: 16/9; background: #000; }
+    .close-video {
       position: absolute;
       top: calc(env(safe-area-inset-top, 0px) + 20px);
       right: 20px;
       background: rgba(255,255,255,0.2);
       border: none;
       color: #fff;
-      padding: 8px 16px;
-      border-radius: 20px;
-      backdrop-filter: blur(10px);
-      font-weight: 600;
+      padding: 10px 20px;
+      border-radius: 24px;
+      backdrop-filter: blur(15px);
+      -webkit-backdrop-filter: blur(15px);
+      font-weight: 700;
+      font-size: 14px;
       z-index: 1001;
     }
 
@@ -578,19 +579,21 @@
   <div class="safe-bottom"></div>
 </footer>
 
-<div id="playerOverlay">
-  <button class="close-player" onclick="closePlayer()">Close</button>
+<div id="videoOverlay">
+  <button class="close-video" onclick="closePlayer()">CLOSE PLAYER</button>
   <video id="videoPlayer" controls playsinline></video>
 </div>
 
 <div class="toast" id="toast">Copied!</div>
 
 <script>
-  const API = 'https://fcapi.amitbala1993.workers.dev';
-  const INTERVAL = 5 * 60 * 1000; // 5 min
-  let timer, countdown, remaining = INTERVAL;
-  const video = document.getElementById('videoPlayer');
-  const overlay = document.getElementById('playerOverlay');
+  // Proxy URL to bypass CORS on Vercel
+  const API = '/api/fancode';
+  const INTERVAL = 5 * 60 * 1000; 
+  let timer, remaining = INTERVAL;
+
+  const vPlayer = document.getElementById('videoPlayer');
+  const overlay = document.getElementById('videoOverlay');
   let hlsInstance = null;
 
   async function fetchData() {
@@ -643,8 +646,10 @@
             <div class="stream-row">
               <span class="res-label">${escHtml(r)}</span>
               <span class="url-text">${escHtml(resolutions[r])}</span>
-              <button class="play-btn" onclick="playStream('${escAttr(resolutions[r])}')">Play</button>
-              <button class="copy-btn" onclick="copyURL(this, '${escAttr(resolutions[r])}')">Copy</button>
+              <div style="display:flex; gap:6px;">
+                <button class="play-btn" onclick="playStream('${escAttr(resolutions[r])}')">Play</button>
+                <button class="copy-btn" onclick="copyURL(this, '${escAttr(resolutions[r])}')">Copy</button>
+              </div>
             </div>
           `).join('');
 
@@ -670,7 +675,7 @@
               ${mainURL ? `
               <div class="stream-section-label">Main Stream (1080p)</div>
               <div class="main-stream">
-                <span class="res-label" style="color:var(--accent)">🔗 URL</span>
+                <span class="res-label" style="color:var(--accent)">🔗 HLS</span>
                 <span class="url-text">${escHtml(mainURL)}</span>
                 <button class="play-btn" onclick="playStream('${escAttr(mainURL)}')">Play</button>
                 <button class="copy-btn" onclick="copyURL(this, '${escAttr(mainURL)}')">Copy</button>
@@ -701,7 +706,7 @@
         <div class="error-wrap">
           <div class="error-icon">⚠️</div>
           <div class="error-title">Couldn't Load Streams</div>
-          <div class="error-sub">Check your connection and try again.</div>
+          <div class="error-sub">API or Network Error. Check vercel.json configuration.</div>
           <button class="retry-btn" onclick="fetchData()">Try Again</button>
         </div>`;
       document.getElementById('liveCount').textContent = '—';
@@ -709,26 +714,24 @@
   }
 
   function playStream(url) {
-    overlay.classList.add('active');
-    if (hlsInstance) {
-      hlsInstance.destroy();
-    }
+    overlay.classList.add('show');
+    if (hlsInstance) hlsInstance.destroy();
 
     if (Hls.isSupported()) {
       hlsInstance = new Hls();
       hlsInstance.loadSource(url);
-      hlsInstance.attachMedia(video);
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = url;
-      video.addEventListener('loadedmetadata', () => video.play());
+      hlsInstance.attachMedia(vPlayer);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => vPlayer.play());
+    } else if (vPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+      vPlayer.src = url;
+      vPlayer.addEventListener('loadedmetadata', () => vPlayer.play());
     }
   }
 
   function closePlayer() {
-    overlay.classList.remove('active');
-    video.pause();
-    video.src = "";
+    overlay.classList.remove('show');
+    vPlayer.pause();
+    vPlayer.src = "";
     if (hlsInstance) {
       hlsInstance.destroy();
       hlsInstance = null;

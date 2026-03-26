@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/fancode",
+      "destination": "https://fcapi.amitbala1993.workers.dev"
+    }
+  ]
+}

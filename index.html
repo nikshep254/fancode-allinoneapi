@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>NikshepOS - FanCode Live</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
@@ -284,11 +285,9 @@
       font-variant-numeric: tabular-nums;
     }
 
-    .copy-btn {
-      background: rgba(10,132,255,0.18);
+    .copy-btn, .play-btn {
       border: none;
       border-radius: 7px;
-      color: var(--accent);
       font-size: 12px;
       font-weight: 600;
       padding: 5px 11px;
@@ -299,12 +298,12 @@
       flex-shrink: 0;
     }
 
-    .copy-btn:active { transform: scale(0.94); background: rgba(10,132,255,0.3); }
+    .copy-btn { background: rgba(10,132,255,0.18); color: var(--accent); }
+    .play-btn { background: rgba(48,209,88,0.18); color: var(--accent2); margin-left: 4px; }
 
-    .copy-btn.copied {
-      background: rgba(48,209,88,0.2);
-      color: var(--accent2);
-    }
+    .copy-btn:active, .play-btn:active { transform: scale(0.94); }
+
+    .copy-btn.copied { background: rgba(48,209,88,0.2); color: var(--accent2); }
 
     /* Main stream highlight */
     .main-stream {
@@ -346,11 +345,35 @@
 
     .res-toggle-arrow.open { transform: rotate(180deg); }
 
-    .res-list {
-      display: none;
-    }
-
+    .res-list { display: none; }
     .res-list.open { display: block; }
+
+    /* ── Player Overlay ── */
+    #playerOverlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #000;
+      z-index: 1000;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+    #playerOverlay.active { display: flex; }
+    #videoPlayer { width: 100%; max-width: 1000px; aspect-ratio: 16/9; background: #000; }
+    .close-player {
+      position: absolute;
+      top: calc(env(safe-area-inset-top, 0px) + 20px);
+      right: 20px;
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 20px;
+      backdrop-filter: blur(10px);
+      font-weight: 600;
+      z-index: 1001;
+    }
 
     /* ── Toast ── */
     .toast {
@@ -374,10 +397,7 @@
       border: 0.5px solid var(--separator);
     }
 
-    .toast.show {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     /* ── Loading state ── */
     .loading-wrap {
@@ -399,11 +419,7 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    .loading-text {
-      font-size: 14px;
-      color: var(--label3);
-      font-weight: 400;
-    }
+    .loading-text { font-size: 14px; color: var(--label3); font-weight: 400; }
 
     /* ── Error state ── */
     .error-wrap {
@@ -479,21 +495,11 @@
 
     .credits-info { flex: 1; }
 
-    .credits-name {
-      font-size: 15px;
-      font-weight: 600;
-      margin-bottom: 2px;
-    }
+    .credits-name { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
 
-    .credits-role {
-      font-size: 12px;
-      color: var(--label3);
-    }
+    .credits-role { font-size: 12px; color: var(--label3); }
 
-    .credits-links {
-      display: flex;
-      gap: 8px;
-    }
+    .credits-links { display: flex; gap: 8px; }
 
     .cred-link {
       display: flex;
@@ -520,10 +526,7 @@
       letter-spacing: -0.1px;
     }
 
-    .api-credit a {
-      color: var(--label3);
-      text-decoration: none;
-    }
+    .api-credit a { color: var(--label3); text-decoration: none; }
   </style>
 </head>
 <body>
@@ -575,18 +578,25 @@
   <div class="safe-bottom"></div>
 </footer>
 
+<div id="playerOverlay">
+  <button class="close-player" onclick="closePlayer()">Close</button>
+  <video id="videoPlayer" controls playsinline></video>
+</div>
+
 <div class="toast" id="toast">Copied!</div>
 
 <script>
   const API = 'https://fcapi.amitbala1993.workers.dev';
   const INTERVAL = 5 * 60 * 1000; // 5 min
   let timer, countdown, remaining = INTERVAL;
+  const video = document.getElementById('videoPlayer');
+  const overlay = document.getElementById('playerOverlay');
+  let hlsInstance = null;
 
   async function fetchData() {
     const main = document.getElementById('main');
     const footer = document.getElementById('footer');
 
-    // Only show loading spinner on first load
     if (!document.querySelector('.card-group')) {
       main.innerHTML = `<div class="loading-wrap"><div class="spinner"></div><div class="loading-text">Fetching live streams…</div></div>`;
     }
@@ -609,7 +619,6 @@
         return;
       }
 
-      // Group by tournament
       const grouped = {};
       data.matches.forEach(m => {
         const key = m.tournament.trim();
@@ -634,6 +643,7 @@
             <div class="stream-row">
               <span class="res-label">${escHtml(r)}</span>
               <span class="url-text">${escHtml(resolutions[r])}</span>
+              <button class="play-btn" onclick="playStream('${escAttr(resolutions[r])}')">Play</button>
               <button class="copy-btn" onclick="copyURL(this, '${escAttr(resolutions[r])}')">Copy</button>
             </div>
           `).join('');
@@ -662,6 +672,7 @@
               <div class="main-stream">
                 <span class="res-label" style="color:var(--accent)">🔗 URL</span>
                 <span class="url-text">${escHtml(mainURL)}</span>
+                <button class="play-btn" onclick="playStream('${escAttr(mainURL)}')">Play</button>
                 <button class="copy-btn" onclick="copyURL(this, '${escAttr(mainURL)}')">Copy</button>
               </div>` : ''}
 
@@ -697,6 +708,33 @@
     }
   }
 
+  function playStream(url) {
+    overlay.classList.add('active');
+    if (hlsInstance) {
+      hlsInstance.destroy();
+    }
+
+    if (Hls.isSupported()) {
+      hlsInstance = new Hls();
+      hlsInstance.loadSource(url);
+      hlsInstance.attachMedia(video);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      video.addEventListener('loadedmetadata', () => video.play());
+    }
+  }
+
+  function closePlayer() {
+    overlay.classList.remove('active');
+    video.pause();
+    video.src = "";
+    if (hlsInstance) {
+      hlsInstance.destroy();
+      hlsInstance = null;
+    }
+  }
+
   function toggleRes(el) {
     const arrow = el.querySelector('.res-toggle-arrow');
     const list = el.nextElementSibling;
@@ -716,23 +754,6 @@
         btn.textContent = 'Copy';
         btn.classList.remove('copied');
       }, 2000);
-    }).catch(() => {
-      // Fallback
-      const ta = document.createElement('textarea');
-      ta.value = url;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      btn.textContent = '✓ Copied';
-      btn.classList.add('copied');
-      showToast('Link copied!');
-      setTimeout(() => {
-        btn.textContent = 'Copy';
-        btn.classList.remove('copied');
-      }, 2000);
     });
   }
 
@@ -743,32 +764,25 @@
     setTimeout(() => t.classList.remove('show'), 2000);
   }
 
-  // Countdown timer
   function startCountdown() {
     remaining = INTERVAL;
     clearInterval(timer);
-
     timer = setInterval(() => {
       remaining -= 1000;
       if (remaining <= 0) {
         remaining = INTERVAL;
         fetchData();
       }
-
       const mins = Math.floor(remaining / 60000);
       const secs = Math.floor((remaining % 60000) / 1000);
-      document.getElementById('countdown').textContent =
-        `${mins}:${secs.toString().padStart(2,'0')}`;
-
+      document.getElementById('countdown').textContent = `${mins}:${secs.toString().padStart(2,'0')}`;
       const pct = (remaining / INTERVAL) * 100;
       document.getElementById('progressFill').style.width = pct + '%';
     }, 1000);
   }
 
   function escHtml(s) {
-    return String(s)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   function escAttr(s) {
